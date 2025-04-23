@@ -6,48 +6,59 @@ import QuizAttempt from "../Modal/QuizModel.js"; // Assuming the QuizAttempt mod
 const prepareGeminiPrompt = (score, total, wrongAnswers, topic) => {
   const wrongQuestionsText = wrongAnswers.map((q) => q.question).join(", ");
   return `
-    User got ${score}/${total} in ${topic}.
-    Wrong answers were on: ${wrongQuestionsText}.
-    Provide detailed feedback and learning suggestions for each topic they struggled with (e.g., closures, promises, etc.).
-    Suggest YouTube links, articles, or tutorials for learning these concepts.
+      User got ${score}/${total} in ${topic}.
+      Wrong answers were on: ${wrongQuestionsText}.
+      Provide detailed feedback and learning suggestions for each topic they struggled with (e.g., closures, promises, etc.).
+      Suggest YouTube links, articles, or tutorials for learning these concepts.
+      Suggest a roadmap for improving their knowledge in ${topic} and related areas.
+      Output the response in JSON format with keys: "feedback" and "resources".
+      Add last line: "Do You want to retry the quiz?"
   `;
 };
+
+// 🧠 Call Gemini API to get feedback
 const callGeminiAPI = async (gptPrompt) => {
-  try {
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        contents: [
-          {
-            role: "user",
-            parts: [
-              {
-                text: gptPrompt,
-              },
-            ],
-          },
-        ],
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
+    try {
+      const response = await axios.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${process.env.GEMINI_API_KEY}`,
+        {
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: gptPrompt,
+                },
+              ],
+            },
+          ],
         },
-      }
-    );
-
-    const generatedText =
-      response.data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "No feedback generated.";
-    return generatedText;
-  } catch (error) {
-    console.error(
-      "💔 Gemini API Error:",
-      error.response?.data || error.message
-    );
-    return null;
-  }
-};
-
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+  
+      // Log the raw response for debugging
+      console.log("Raw Gemini Response:", response.data);
+  
+      // Get the feedback from the response
+      const feedback = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || "No feedback generated.";
+  
+      // Log the feedback to check
+      console.log("Gemini Feedback (Before Sending):", feedback);
+  
+      // Send the raw feedback as it is without parsing
+      return { feedback: feedback, resources: [] };
+    } catch (error) {
+      console.error("💔 Gemini API Error:", error.response?.data || error.message);
+      return { feedback: "Failed to get feedback from Gemini", resources: [] }; // Return fallback error
+    }
+  };
+  
+  
+  
 
 // 🧾 Calculate quiz score & check answers
 const calculateScore = (questions, userAnswers) => {
@@ -68,7 +79,6 @@ const calculateScore = (questions, userAnswers) => {
 };
 
 // 🧾 Submit quiz and get feedback from Gemini
-// 🧾 Submit quiz and get feedback from Gemini
 export const submitQuizWithFeedback = async (req, res) => {
   try {
     const { userId, questions, userAnswers, topic } = req.body;
@@ -83,10 +93,7 @@ export const submitQuizWithFeedback = async (req, res) => {
     }
 
     // 2️⃣ Calculate score
-    const { score, total, detailedResults } = calculateScore(
-      questions,
-      userAnswers
-    );
+    const { score, total, detailedResults } = calculateScore(questions, userAnswers);
 
     // 3️⃣ Find wrong answers
     const wrongAnswers = detailedResults.filter((result) => !result.isCorrect);
@@ -95,10 +102,10 @@ export const submitQuizWithFeedback = async (req, res) => {
     const gptPrompt = prepareGeminiPrompt(score, total, wrongAnswers, topic);
 
     // 5️⃣ Get feedback from Gemini API
-    const gptFeedback = await callGeminiAPI(gptPrompt); // Pass the prompt to Gemini API
+    const gptFeedback = await callGeminiAPI(gptPrompt); // Get structured feedback
 
-    // Check if we got feedback from Gemini
-    if (!gptFeedback) {
+    // Check if we got valid feedback
+    if (!gptFeedback || !gptFeedback.feedback) {
       return res.status(500).json({
         success: false,
         message: "Error getting feedback from Gemini API",
@@ -116,14 +123,15 @@ export const submitQuizWithFeedback = async (req, res) => {
       timestamp: new Date(),
     });
 
-    // 7️⃣ Send success response with feedback
+    // 7️⃣ Send success response with structured feedback
     return res.status(200).json({
       success: true,
       message: "Quiz submitted and feedback generated successfully",
       score,
       total,
       attemptId: attempt._id,
-      feedback: gptFeedback, // Send Gemini feedback
+      feedback: gptFeedback.feedback, // Sending feedback text
+      resources: gptFeedback.resources, // Sending resources (links, tutorials, etc.)
       detailedResults,
     });
   } catch (error) {
@@ -138,3 +146,4 @@ export const submitQuizWithFeedback = async (req, res) => {
     });
   }
 };
+
