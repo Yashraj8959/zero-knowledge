@@ -1,6 +1,7 @@
 import axios from "axios";
 import mongoose from "mongoose";
 import QuizAttempt from "../Modal/QuizModel.js"; // Assuming the QuizAttempt model is set correctly
+import User from "../Modal/User.Modal.js";
 
 // 🧠 Prepare Gemini 2.5 prompt for feedback
 const prepareGeminiPrompt = (score, total, wrongAnswers, topic) => {
@@ -111,10 +112,10 @@ export const submitQuizWithFeedback = async (req, res) => {
         message: "Error getting feedback from Gemini API",
       });
     }
-
+const user = await User.findById(userId);
     // 6️⃣ Store quiz attempt in DB
     const attempt = await QuizAttempt.create({
-      user: new mongoose.Types.ObjectId(userId),
+      user: user._id,
       topic,
       questions,
       userAnswers,
@@ -127,11 +128,17 @@ export const submitQuizWithFeedback = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Quiz submitted and feedback generated successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+      },
+      topic,
       score,
-      total,
+      total, 
       attemptId: attempt._id,
-      feedback: gptFeedback.feedback, // Sending feedback text
-      resources: gptFeedback.resources, // Sending resources (links, tutorials, etc.)
+      feedback: gptFeedback.feedback,  
+      resources: gptFeedback.resources, 
       detailedResults,
     });
   } catch (error) {
